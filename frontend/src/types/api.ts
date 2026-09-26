@@ -40,6 +40,7 @@ export interface TrackMetadata {
   plays?: string;
   status?: string;
   is_explicit?: boolean;
+  preview_url?: string;
 }
 export interface TrackResponse {
   track: TrackMetadata;

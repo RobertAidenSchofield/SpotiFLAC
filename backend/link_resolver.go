@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 type resolvedTrackLinks struct {
@@ -18,7 +19,18 @@ const (
 	linkResolverProviderDeezerSongLink = "deezer-songlink"
 )
 
+var (
+	resolvedTrackLinksCache sync.Map // map[string]*resolvedTrackLinks
+)
+
 func (s *SongLinkClient) resolveSpotifyTrackLinks(spotifyTrackID string, region string) (*resolvedTrackLinks, error) {
+	cacheKey := fmt.Sprintf("%s:%s", spotifyTrackID, region)
+	if cached, ok := resolvedTrackLinksCache.Load(cacheKey); ok {
+		if links, ok := cached.(*resolvedTrackLinks); ok && links != nil {
+			return links, nil
+		}
+	}
+
 	links := &resolvedTrackLinks{}
 	var attempts []string
 
@@ -49,11 +61,13 @@ func (s *SongLinkClient) resolveSpotifyTrackLinks(spotifyTrackID string, region 
 		}
 
 		if links.TidalURL != "" && links.AmazonURL != "" {
+			resolvedTrackLinksCache.Store(cacheKey, links)
 			return links, nil
 		}
 	}
 
 	if hasAnySongLinkData(links) {
+		resolvedTrackLinksCache.Store(cacheKey, links)
 		return links, nil
 	}
 

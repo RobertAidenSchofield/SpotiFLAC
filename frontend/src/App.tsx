@@ -67,6 +67,7 @@ import { HomeScreen } from '@/components/HomeScreen';
 import { HistoryPage } from '@/components/HistoryPage';
 import { QueuePage } from '@/components/QueuePage';
 import { SupportPage } from '@/components/SupportPage';
+import { ExploPage } from '@/components/ExploPage';
 import type { HistoryItem } from '@/components/FetchHistory';
 import { useDownload } from '@/hooks/useDownload';
 import { useQueue } from '@/hooks/useQueue';
@@ -1234,6 +1235,20 @@ function App() {
             }}
           />
         );
+      case 'explo':
+        return (
+          <ExploPage
+            onDownloadTracks={(tracks, folderName) => {
+              void download.handleDownloadAll(
+                tracks,
+                folderName,
+                false,
+                'playlist',
+              );
+            }}
+            onNavigateToQueue={() => handlePageChange('queue')}
+          />
+        );
       case 'queue':
         return (
           <QueuePage
@@ -1244,16 +1259,12 @@ function App() {
             downloadedTracks={download.downloadedTracks}
             failedTracks={download.failedTracks}
             skippedTracks={download.skippedTracks}
-            downloadingTracks={
-              download.downloadingTrack
-                ? new Set([download.downloadingTrack])
-                : new Set()
-            }
+            downloadingTracks={download.downloadingTrackIds}
             onStart={queue.start}
             onPause={queue.pause}
             onStop={queue.stop}
             isDirectDownloading={
-              download.isDownloading || download.downloadingTrack !== null
+              download.isDownloading || download.downloadingTrackIds.size > 0
             }
             onStopDirect={download.handleStopDownload}
           />

@@ -651,6 +651,27 @@ func (a *App) GetSpotifyCategoryFeed(genre string) ([]backend.SpotifyHomeItem, e
 	return backend.GetSpotifyCategoryFeed(ctx, genre)
 }
 
+func (a *App) FetchListenBrainzPlaylists(username string) ([]backend.ExploPlaylist, error) {
+	client := backend.NewListenBrainzClient()
+	return client.FetchUserPlaylists(username)
+}
+
+func (a *App) FetchListenBrainzPlaylistTracks(playlistID string) (*backend.ExploPlaylist, error) {
+	client := backend.NewListenBrainzClient()
+	return client.FetchPlaylistTracks(playlistID)
+}
+
+func (a *App) FetchListenBrainzRecommendations(username string, recType string, query string) (*backend.ExploPlaylist, error) {
+	client := backend.NewListenBrainzClient()
+	return client.FetchRecommendations(username, recType, query)
+}
+
+func (a *App) ResolveExploTracksToSpotify(tracks []backend.ExploTrack) ([]backend.TrackMetadata, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	return backend.ResolveExploTracksToSpotify(ctx, tracks)
+}
+
 func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 
 	if req.Service == "qobuz" && req.SpotifyID == "" {

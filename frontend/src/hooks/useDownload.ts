@@ -346,6 +346,9 @@ export function useDownload() {
   );
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadingTrack, setDownloadingTrack] = useState<string | null>(null);
+  const [downloadingTrackIds, setDownloadingTrackIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [downloadedTracks, setDownloadedTracks] = useState<Set<string>>(
     () => new Set(restoredQueueTrackStatuses.downloadedTracks),
   );
@@ -359,6 +362,7 @@ export function useDownload() {
   const shouldPauseDownloadRef = useRef(false);
   const resetBatchDownloadState = () => {
     setDownloadingTrack(null);
+    setDownloadingTrackIds(new Set());
     setIsDownloading(false);
     shouldStopDownloadRef.current = false;
     shouldPauseDownloadRef.current = false;
@@ -403,7 +407,10 @@ export function useDownload() {
     let finalTrackNumber = spotifyTrackNumber || 0;
     let finalAlbumType = '';
     let finalUPC = '';
-    if (spotifyId) {
+    if (
+      spotifyId &&
+      (!trackName || !artistName || !albumName || !finalReleaseDate)
+    ) {
       try {
         const trackURL = `https://open.spotify.com/track/${spotifyId}`;
         const trackMetadata = await fetchSpotifyMetadata(
@@ -633,9 +640,8 @@ export function useDownload() {
             const cooldownFailure = getCooldownFailure(err);
             if (cooldownFailure) return cooldownFailure;
             fallbackErrors.push(`[Tidal] ${String(err)}`);
-            lastResponse = { success: false, error: String(err) };
           }
-        conselse if (s === 'amazon' && streamingURLs?.amazon_url) {
+        } else if (s === 'amazon' && streamingURLs?.amazon_url) {
           try {
             logger.debug(`trying amazon for: ${trackName} - ${artistName}`);
             const response = await downloadTrack({
@@ -855,9 +861,8 @@ export function useDownload() {
         : undefined;
     const customQobuzApi =
       typeof settings.customQobuzApi === 'string' &&
-      settings.customQobuzApi.trim().startsWith('https://')
-        ? settings.customQobuzApi.trim().replace(/\/+$/g, '')
-        : undefined;
+      settings.customQobuzApi.trim().startsWith('https://');
+    cons ? settings.customQobuzApi.trim().replace(/\/+$/g, '') : undefined;
     let outputDir = settings.downloadPath;
     let useAlbumTrackNumber = false;
     const placeholder = '__SLASH_PLACEHOLDER__';
@@ -865,7 +870,10 @@ export function useDownload() {
     let finalTrackNumber = spotifyTrackNumber || 0;
     let finalAlbumType = '';
     let finalUPC = '';
-    if (spotifyId) {
+    if (
+      spotifyId &&
+      (!trackName || !artistName || !albumName || !finalReleaseDate)
+    ) {
       try {
         const trackURL = `https://open.spotify.com/track/${spotifyId}`;
         const trackMetadata = await fetchSpotifyMetadata(
@@ -1288,6 +1296,7 @@ export function useDownload() {
     };
     logger.info(`starting download: ${trackName} - ${displayArtist}`);
     setDownloadingTrack(id);
+    setDownloadingTrackIds((prev) => new Set(prev).add(id));
     try {
       const releaseYear = releaseDate?.substring(0, 4);
       const response = await downloadWithAutoFallback(
@@ -1377,6 +1386,11 @@ export function useDownload() {
       return finishDirectTrack('failed');
     } finally {
       setDownloadingTrack(null);
+      setDownloadingTrackIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
       shouldStopDownloadRef.current = false;
     }
   };
@@ -1491,17 +1505,20 @@ export function useDownload() {
       }
       logger.info(`found ${existingSpotifyIDs.size} existing files`);
       const { AddToDownloadQueue } = await import('../../wailsjs/go/main/App');
-      const itemIDs: string[] = [];
-      for (const track of selectedTrackObjects) {
+      const itemIDs: string[] = await Promise.all(
+        selectedTrackObjects.map((track) =>
+          AddToDownloadQueue(
+            track.spotify_id || '',
+            track.name || '',
+            track.artists || '',
+            track.album_name || '',
+          ),
+        ),
+      );
+      for (let i = 0; i < selectedTrackObjects.length; i++) {
+        const track = selectedTrackObjects[i];
         const trackID = track.spotify_id || '';
-        const displayArtist = track.artists;
-        const itemID = await AddToDownloadQueue(
-          trackID,
-          track.name || '',
-          displayArtist || '',
-          track.album_name || '',
-        );
-        itemIDs.push(itemID);
+        const itemID = itemIDs[i];
         if (existingSpotifyIDs.has(trackID)) {
           const filePath = existingFilePaths.get(trackID) || '';
           setTimeout(() => SkipDownloadItem(itemID, filePath), 10);
@@ -1532,6 +1549,7 @@ export function useDownload() {
           const id = track.spotify_id || '';
           const itemID = itemIDs[originalIndex];
           setDownloadingTrack(id);
+          setDownloadingTrackIds((prev) => new Set(prev).add(id));
           const displayArtist = track.artists;
           try {
             const releaseYear = track.release_date?.substring(0, 4);
@@ -1624,6 +1642,12 @@ export function useDownload() {
               logger.info(`cooldown detected, pausing queue`);
               break;
             }
+          } finally {
+            setDownloadingTrackIds((prev) => {
+              const next = new Set(prev);
+              next.delete(id);
+              return next;
+            });
           }
         }
       };
@@ -1910,16 +1934,19 @@ export function useDownload() {
       }
       logger.info(`found ${existingSpotifyIDs.size} existing files`);
       const { AddToDownloadQueue } = await import('../../wailsjs/go/main/App');
-      const itemIDs: string[] = [];
-      for (const track of tracksWithId) {
-        const displayArtist = track.artists;
-        const itemID = await AddToDownloadQueue(
-          track.spotify_id || '',
-          track.name || '',
-          displayArtist || '',
-          track.album_name || '',
-        );
-        itemIDs.push(itemID);
+      const itemIDs: string[] = await Promise.all(
+        tracksWithId.map((track) =>
+          AddToDownloadQueue(
+            track.spotify_id || '',
+            track.name || '',
+            track.artists || '',
+            track.album_name || '',
+          ),
+        ),
+      );
+      for (let i = 0; i < tracksWithId.length; i++) {
+        const track = tracksWithId[i];
+        const itemID = itemIDs[i];
         const trackID = track.spotify_id || '';
         if (existingSpotifyIDs.has(trackID)) {
           const filePath = existingFilePaths.get(trackID) || '';
@@ -1953,6 +1980,7 @@ export function useDownload() {
           const itemID = itemIDs[originalIndex];
           const trackId = track.spotify_id || '';
           setDownloadingTrack(trackId);
+          setDownloadingTrackIds((prev) => new Set(prev).add(trackId));
           const displayArtist = track.artists;
           try {
             const releaseYear = track.release_date?.substring(0, 4);
@@ -2056,6 +2084,12 @@ export function useDownload() {
               shouldPauseDownloadRef.current = true;
               break;
             }
+          } finally {
+            setDownloadingTrackIds((prev) => {
+              const next = new Set(prev);
+              next.delete(trackId);
+              return next;
+            });
           }
         }
       };
@@ -2306,6 +2340,7 @@ export function useDownload() {
   return {
     isDownloading,
     downloadingTrack,
+    downloadingTrackIds,
     downloadedTracks,
     failedTracks,
     skippedTracks,
