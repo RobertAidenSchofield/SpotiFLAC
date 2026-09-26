@@ -369,6 +369,46 @@ func (q *QobuzDownloader) GetDownloadURL(trackID int64, quality string, allowFal
 
 	fmt.Printf("Getting download URL for track ID: %d with requested quality: %s\n", trackID, qualityCode)
 
+	// Check if a personal Qobuz account is connected
+	account, accErr := GetQobuzAccount()
+	if accErr == nil && account != nil && account.Connected && strings.TrimSpace(account.UserAuthToken) != "" {
+		fmt.Printf("Trying personal Qobuz account (%s - %s)...\n", account.Email, account.Subscription)
+		userURL, err := q.getQobuzUserAccountDownloadURL(trackID, qualityCode, account.UserAuthToken)
+		if err == nil {
+			fmt.Printf("Success (personal Qobuz account: %s)\n", account.Subscription)
+			q.SourceLabel = fmt.Sprintf("Qobuz (%s)", account.Subscription)
+			q.SourceURL = userURL
+			return userURL, nil
+		}
+		if IsDownloadCancelledError(err) {
+			return "", err
+		}
+		fmt.Printf("Personal Qobuz account failed: %v\n", err)
+
+		if allowFallback {
+			if qualityCode == "27" {
+				fmt.Println("Personal Qobuz account trying fallback to quality 7...")
+				if fbURL, fbErr := q.getQobuzUserAccountDownloadURL(trackID, "7", account.UserAuthToken); fbErr == nil {
+					fmt.Println("Success with fallback quality 7 (personal Qobuz account)")
+					q.SourceLabel = fmt.Sprintf("Qobuz (%s)", account.Subscription)
+					q.SourceURL = fbURL
+					return fbURL, nil
+				}
+			}
+			if qualityCode == "27" || qualityCode == "7" {
+				fmt.Println("Personal Qobuz account trying fallback to quality 6...")
+				if fbURL, fbErr := q.getQobuzUserAccountDownloadURL(trackID, "6", account.UserAuthToken); fbErr == nil {
+					fmt.Println("Success with fallback quality 6 (personal Qobuz account)")
+					q.SourceLabel = fmt.Sprintf("Qobuz (%s)", account.Subscription)
+					q.SourceURL = fbURL
+					return fbURL, nil
+				}
+			}
+		} else {
+			return "", fmt.Errorf("personal Qobuz account download failed: %w", err)
+		}
+	}
+
 	if strings.TrimSpace(q.customURL) != "" {
 		fmt.Printf("Trying custom Qobuz instance...\n")
 		url, err := q.getQobuzCustomDownloadURL(trackID, qualityCode)

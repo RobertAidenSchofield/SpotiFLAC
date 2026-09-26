@@ -204,7 +204,7 @@ func qobuzSignaturePayload(path string, params url.Values, timestamp string, sec
 	keys := make([]string, 0, len(params))
 	for key := range params {
 		switch key {
-		case "app_id", "request_ts", "request_sig":
+		case "app_id", "request_ts", "request_sig", "user_auth_token":
 			continue
 		}
 		keys = append(keys, key)

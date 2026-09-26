@@ -1605,6 +1605,37 @@ func (a *App) CheckCustomQobuzAPI(apiURL string) bool {
 	return false
 }
 
+func (a *App) GetQobuzAccount() (*backend.QobuzAccount, error) {
+	return backend.GetQobuzAccount()
+}
+
+func (a *App) QobuzLogin(identifier, password string) (*backend.QobuzAccount, error) {
+	return backend.LoginQobuzWithCredentials(identifier, password)
+}
+
+func (a *App) QobuzLoginWithToken(token string, userID int64) (*backend.QobuzAccount, error) {
+	return backend.LoginQobuzWithToken(token, userID)
+}
+
+func (a *App) StartQobuzOAuth() (string, error) {
+	return backend.StartQobuzOAuth(
+		func(acc *backend.QobuzAccount) {
+			runtime.EventsEmit(a.ctx, "qobuz:oauth:success", acc)
+		},
+		func(err error) {
+			runtime.EventsEmit(a.ctx, "qobuz:oauth:error", err.Error())
+		},
+	)
+}
+
+func (a *App) CancelQobuzOAuth() error {
+	return backend.CancelQobuzOAuth()
+}
+
+func (a *App) QobuzLogout() error {
+	return backend.ClearQobuzAccount()
+}
+
 func buildTidalStatusCheckURLs(apiURL string) []string {
 	apiURL = strings.TrimRight(strings.TrimSpace(apiURL), "/")
 	if apiURL == "" {
