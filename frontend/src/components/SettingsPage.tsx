@@ -91,6 +91,7 @@ import {
   CheckCustomTidalAPI,
   CheckCustomQobuzAPI,
 } from '../../wailsjs/go/main/App';
+import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { toastWithSound as toast } from '@/lib/toast-with-sound';
 import { openExternal } from '@/lib/utils';
 import { ApiStatusTab } from './ApiStatusTab';
@@ -461,30 +462,25 @@ export function SettingsPage({
       }
     });
 
-    if (typeof window !== 'undefined' && window.runtime?.EventsOn) {
-      const unbindSuccess = window.runtime.EventsOn(
-        'qobuz:oauth:success',
-        (acc: QobuzAccount) => {
-          setQobuzAccount(acc);
-          setQobuzOAuthWaiting(false);
-          setShowQobuzAccountDialog(false);
-          toast.success(
-            `Connected Qobuz: ${acc.display_name || acc.email} (${acc.subscription})`,
-          );
-        },
-      );
-      const unbindError = window.runtime.EventsOn(
-        'qobuz:oauth:error',
-        (errMsg: string) => {
-          setQobuzOAuthWaiting(false);
-          toast.error(`Qobuz login failed: ${errMsg}`);
-        },
-      );
-      return () => {
-        if (unbindSuccess) unbindSuccess();
-        if (unbindError) unbindError();
-      };
-    }
+    const unbindSuccess = EventsOn(
+      'qobuz:oauth:success',
+      (acc: QobuzAccount) => {
+        setQobuzAccount(acc);
+        setQobuzOAuthWaiting(false);
+        setShowQobuzAccountDialog(false);
+        toast.success(
+          `Connected Qobuz: ${acc.display_name || acc.email} (${acc.subscription})`,
+        );
+      },
+    );
+    const unbindError = EventsOn('qobuz:oauth:error', (errMsg: string) => {
+      setQobuzOAuthWaiting(false);
+      toast.error(`Qobuz login failed: ${errMsg}`);
+    });
+    return () => {
+      if (typeof unbindSuccess === 'function') unbindSuccess();
+      if (typeof unbindError === 'function') unbindError();
+    };
   }, []);
 
   const handleQobuzCredentialsLogin = async (e?: React.FormEvent) => {

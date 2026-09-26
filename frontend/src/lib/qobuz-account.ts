@@ -1,92 +1,78 @@
 import type { QobuzAccount } from '@/types/api';
-
-declare global {
-  interface Window {
-    go?: {
-      main?: {
-        App?: {
-          GetQobuzAccount?: () => Promise<QobuzAccount>;
-          QobuzLogin?: (
-            identifier: string,
-            password: string,
-          ) => Promise<QobuzAccount>;
-          QobuzLoginWithToken?: (
-            token: string,
-            userID: number,
-          ) => Promise<QobuzAccount>;
-          StartQobuzOAuth?: () => Promise<string>;
-          CancelQobuzOAuth?: () => Promise<void>;
-          QobuzLogout?: () => Promise<void>;
-        };
-      };
-    };
-    runtime?: {
-      EventsOn?: (
-        eventName: string,
-        callback: (...args: any[]) => void,
-      ) => () => void;
-      EventsOnce?: (
-        eventName: string,
-        callback: (...args: any[]) => void,
-      ) => void;
-      EventsOff?: (eventName: string) => void;
-    };
-  }
-}
+import {
+  GetQobuzAccount,
+  QobuzLogin,
+  QobuzLoginWithToken,
+  StartQobuzOAuth,
+  CancelQobuzOAuth,
+  QobuzLogout,
+} from '../../wailsjs/go/main/App';
 
 export async function getQobuzAccount(): Promise<QobuzAccount> {
-  if (typeof window !== 'undefined' && window.go?.main?.App?.GetQobuzAccount) {
-    return await window.go.main.App.GetQobuzAccount();
+  try {
+    const acc = await GetQobuzAccount();
+    return {
+      user_id: acc?.user_id ?? 0,
+      user_auth_token: acc?.user_auth_token ?? '',
+      email: acc?.email ?? '',
+      display_name: acc?.display_name ?? '',
+      subscription: acc?.subscription ?? '',
+      country_code: acc?.country_code,
+      connected: acc?.connected ?? false,
+    };
+  } catch {
+    return {
+      user_id: 0,
+      user_auth_token: '',
+      email: '',
+      display_name: '',
+      subscription: '',
+      connected: false,
+    };
   }
-  return {
-    user_id: 0,
-    user_auth_token: '',
-    email: '',
-    display_name: '',
-    subscription: '',
-    connected: false,
-  };
 }
 
 export async function loginQobuz(
   identifier: string,
   password: string,
 ): Promise<QobuzAccount> {
-  if (typeof window === 'undefined' || !window.go?.main?.App?.QobuzLogin) {
-    throw new Error('Qobuz login is not available');
-  }
-  return await window.go.main.App.QobuzLogin(identifier, password);
+  const acc = await QobuzLogin(identifier, password);
+  return {
+    user_id: acc.user_id,
+    user_auth_token: acc.user_auth_token,
+    email: acc.email,
+    display_name: acc.display_name,
+    subscription: acc.subscription,
+    country_code: acc.country_code,
+    connected: acc.connected,
+  };
 }
 
 export async function loginQobuzWithToken(
   token: string,
   userID: number = 0,
 ): Promise<QobuzAccount> {
-  if (
-    typeof window === 'undefined' ||
-    !window.go?.main?.App?.QobuzLoginWithToken
-  ) {
-    throw new Error('Qobuz token login is not available');
-  }
-  return await window.go.main.App.QobuzLoginWithToken(token, userID);
+  const acc = await QobuzLoginWithToken(token, userID);
+  return {
+    user_id: acc.user_id,
+    user_auth_token: acc.user_auth_token,
+    email: acc.email,
+    display_name: acc.display_name,
+    subscription: acc.subscription,
+    country_code: acc.country_code,
+    connected: acc.connected,
+  };
 }
 
 export async function startQobuzOAuth(): Promise<string> {
-  if (typeof window === 'undefined' || !window.go?.main?.App?.StartQobuzOAuth) {
-    throw new Error('Qobuz OAuth is not available');
-  }
-  return await window.go.main.App.StartQobuzOAuth();
+  return await StartQobuzOAuth();
 }
 
 export async function cancelQobuzOAuth(): Promise<void> {
-  if (typeof window !== 'undefined' && window.go?.main?.App?.CancelQobuzOAuth) {
-    await window.go.main.App.CancelQobuzOAuth();
-  }
+  await CancelQobuzOAuth();
 }
 
 export async function logoutQobuz(): Promise<void> {
-  if (typeof window !== 'undefined' && window.go?.main?.App?.QobuzLogout) {
-    await window.go.main.App.QobuzLogout();
-  }
+  await QobuzLogout();
 }
 
