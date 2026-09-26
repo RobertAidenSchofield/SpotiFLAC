@@ -189,17 +189,46 @@ func SetDownloadProgress(mbDownloaded float64) {
 	currentProgressLock.Unlock()
 }
 
+var (
+	activeDownloads     int
+	activeDownloadsLock sync.Mutex
+)
+
 func SetDownloading(downloading bool) {
-	downloadingLock.Lock()
-	isDownloading = downloading
-	downloadingLock.Unlock()
+	activeDownloadsLock.Lock()
+	defer activeDownloadsLock.Unlock()
 
-	if !downloading {
+	if downloading {
+		activeDownloads++
+		downloadingLock.Lock()
+		isDownloading = true
+		downloadingLock.Unlock()
+	} else {
+		if activeDownloads > 0 {
+			activeDownloads--
+		}
+		if activeDownloads == 0 {
+			downloadingLock.Lock()
+			isDownloading = false
+			downloadingLock.Unlock()
 
-		SetDownloadProgress(0)
-		SetDownloadSpeed(0)
-		ClearRateLimitCooldown()
+			SetDownloadProgress(0)
+			SetDownloadSpeed(0)
+			ClearRateLimitCooldown()
+		}
 	}
+}
+
+func ResetDownloadingState() {
+	activeDownloadsLock.Lock()
+	activeDownloads = 0
+	downloadingLock.Lock()
+	isDownloading = false
+	downloadingLock.Unlock()
+	SetDownloadProgress(0)
+	SetDownloadSpeed(0)
+	ClearRateLimitCooldown()
+	activeDownloadsLock.Unlock()
 }
 
 type ProgressWriter struct {
@@ -261,8 +290,12 @@ func (pw *ProgressWriter) Write(p []byte) (int, error) {
 
 		SetDownloadProgress(mbDownloaded)
 
-		if pw.itemID != "" {
-			UpdateItemProgress(pw.itemID, mbDownloaded, speedMBps)
+		targetID := pw.itemID
+		if targetID == "" {
+			targetID = GetCurrentItemID()
+		}
+		if targetID != "" {
+			UpdateItemProgress(targetID, mbDownloaded, speedMBps)
 		}
 
 		pw.lastPrinted = pw.total

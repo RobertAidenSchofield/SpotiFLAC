@@ -307,6 +307,12 @@ func (c *SpotifyClient) Initialize() error {
 	return c.initializeLocked()
 }
 
+func (c *SpotifyClient) AccessToken() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.accessToken
+}
+
 func (c *SpotifyClient) Query(payload map[string]interface{}) (map[string]interface{}, error) {
 	c.mu.Lock()
 	if c.accessToken == "" || c.clientToken == "" {

@@ -66,6 +66,7 @@ func GetSpotifyTrackIdentifiersDirect(spotifyTrackID string) (SpotifyTrackIdenti
 	} else if cachedISRC != "" {
 		fmt.Printf("Found ISRC in cache: %s\n", cachedISRC)
 		identifiers.ISRC = cachedISRC
+		return identifiers, nil
 	}
 
 	httpClient := &http.Client{Timeout: 30 * time.Second}

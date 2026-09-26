@@ -477,7 +477,7 @@ func (q *QobuzDownloader) GetDownloadURL(trackID int64, quality string, allowFal
 	return "", fmt.Errorf("all APIs and fallbacks failed. Last error: %v", err)
 }
 
-func (q *QobuzDownloader) DownloadFile(url, filepath string) error {
+func (q *QobuzDownloader) DownloadFile(url, filepath string, itemID ...string) error {
 	fmt.Println("Starting file download...")
 
 	downloadClient := &http.Client{
@@ -508,7 +508,15 @@ func (q *QobuzDownloader) DownloadFile(url, filepath string) error {
 
 	fmt.Println("Downloading...")
 
-	pw := NewProgressWriter(out)
+	id := ""
+	if len(itemID) > 0 {
+		id = itemID[0]
+	}
+	if id == "" {
+		id = GetCurrentItemID()
+	}
+
+	pw := NewProgressWriterWithID(out, id)
 	_, err = io.Copy(pw, resp.Body)
 	if err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
@@ -624,7 +632,7 @@ func (q *QobuzDownloader) DownloadTrack(spotifyID, outputDir, quality, filenameF
 	return q.DownloadTrackWithISRC(isrc, outputDir, quality, filenameFormat, includeTrackNumber, position, spotifyTrackName, spotifyArtistName, spotifyAlbumName, spotifyAlbumArtist, spotifyReleaseDate, useAlbumTrackNumber, spotifyCoverURL, embedMaxQualityCover, spotifyTrackNumber, spotifyDiscNumber, spotifyTotalTracks, spotifyTotalDiscs, spotifyCopyright, spotifyPublisher, spotifyComposer, metadataSeparator, spotifyURL, allowFallback, useFirstArtistOnly, useSingleGenre, embedGenre)
 }
 
-func (q *QobuzDownloader) DownloadTrackWithISRC(isrc, outputDir, quality, filenameFormat string, includeTrackNumber bool, position int, spotifyTrackName, spotifyArtistName, spotifyAlbumName, spotifyAlbumArtist, spotifyReleaseDate string, useAlbumTrackNumber bool, spotifyCoverURL string, embedMaxQualityCover bool, spotifyTrackNumber, spotifyDiscNumber, spotifyTotalTracks int, spotifyTotalDiscs int, spotifyCopyright, spotifyPublisher, spotifyComposer, metadataSeparator, spotifyURL string, allowFallback bool, useFirstArtistOnly bool, useSingleGenre bool, embedGenre bool) (string, error) {
+func (q *QobuzDownloader) DownloadTrackWithISRC(isrc, outputDir, quality, filenameFormat string, includeTrackNumber bool, position int, spotifyTrackName, spotifyArtistName, spotifyAlbumName, spotifyAlbumArtist, spotifyReleaseDate string, useAlbumTrackNumber bool, spotifyCoverURL string, embedMaxQualityCover bool, spotifyTrackNumber, spotifyDiscNumber, spotifyTotalTracks int, spotifyTotalDiscs int, spotifyCopyright, spotifyPublisher, spotifyComposer, metadataSeparator, spotifyURL string, allowFallback bool, useFirstArtistOnly bool, useSingleGenre bool, embedGenre bool, itemID ...string) (string, error) {
 	fmt.Printf("Fetching track info for ISRC: %s\n", isrc)
 
 	metaChan := make(chan Metadata, 1)
@@ -720,8 +728,16 @@ func (q *QobuzDownloader) DownloadTrackWithISRC(isrc, outputDir, quality, filena
 		return "EXISTS:" + filepath, nil
 	}
 
+	currentID := ""
+	if len(itemID) > 0 {
+		currentID = itemID[0]
+	}
+	if currentID == "" {
+		currentID = GetCurrentItemID()
+	}
+
 	fmt.Printf("Downloading FLAC file to: %s\n", filepath)
-	if err := q.DownloadFile(downloadURL, filepath); err != nil {
+	if err := q.DownloadFile(downloadURL, filepath, currentID); err != nil {
 		return "", fmt.Errorf("failed to download file: %w", err)
 	}
 

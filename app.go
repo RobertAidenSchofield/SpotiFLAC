@@ -637,6 +637,20 @@ func (a *App) SearchSpotifyByType(req SpotifySearchByTypeRequest) ([]backend.Sea
 	return backend.SearchSpotifyByType(ctx, req.Query, req.SearchType, req.Limit, req.Offset)
 }
 
+func (a *App) GetSpotifyHomeFeed(forceRefresh bool) (*backend.SpotifyHomeFeedResponse, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+
+	return backend.GetSpotifyHomeFeed(ctx, forceRefresh)
+}
+
+func (a *App) GetSpotifyCategoryFeed(genre string) ([]backend.SpotifyHomeItem, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	return backend.GetSpotifyCategoryFeed(ctx, genre)
+}
+
 func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 
 	if req.Service == "qobuz" && req.SpotifyID == "" {
@@ -730,7 +744,7 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 		}
 	}
 
-	if req.SpotifyID != "" && (req.Copyright == "" || req.Publisher == "" || req.Composer == "" || req.SpotifyTotalDiscs == 0 || req.ReleaseDate == "" || req.SpotifyTotalTracks == 0 || req.SpotifyTrackNumber == 0) {
+	if req.SpotifyID != "" && (req.TrackName == "" || req.ArtistName == "" || req.AlbumName == "" || req.ReleaseDate == "") {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
@@ -881,7 +895,7 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 		if quality == "" {
 			quality = "6"
 		}
-		filename, err = downloader.DownloadTrackWithISRC(isrc, req.OutputDir, quality, req.FilenameFormat, req.TrackNumber, req.Position, req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist, req.ReleaseDate, req.UseAlbumTrackNumber, req.CoverURL, req.EmbedMaxQualityCover, req.SpotifyTrackNumber, req.SpotifyDiscNumber, req.SpotifyTotalTracks, req.SpotifyTotalDiscs, req.Copyright, req.Publisher, req.Composer, metadataSeparator, spotifyURL, req.AllowFallback, req.UseFirstArtistOnly, req.UseSingleGenre, req.EmbedGenre)
+		filename, err = downloader.DownloadTrackWithISRC(isrc, req.OutputDir, quality, req.FilenameFormat, req.TrackNumber, req.Position, req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist, req.ReleaseDate, req.UseAlbumTrackNumber, req.CoverURL, req.EmbedMaxQualityCover, req.SpotifyTrackNumber, req.SpotifyDiscNumber, req.SpotifyTotalTracks, req.SpotifyTotalDiscs, req.Copyright, req.Publisher, req.Composer, metadataSeparator, spotifyURL, req.AllowFallback, req.UseFirstArtistOnly, req.UseSingleGenre, req.EmbedGenre, req.ItemID)
 		sourceURL = downloader.SourceURL
 		sourceLabel = downloader.SourceLabel
 
@@ -2765,6 +2779,33 @@ func (a *App) CheckFilesExistence(outputDir string, rootDir string, tracks []Che
 				return
 			}
 
+			targetDir := outputDir
+			if t.RelativePath != "" {
+				targetDir = filepath.Join(outputDir, t.RelativePath)
+			}
+
+			isrc := strings.TrimSpace(t.ISRC)
+			shouldResolveISRC := existingFileCheckMode == "isrc" || existingFileCheckMode == "hybrid" || strings.Contains(t.FilenameFormat, "{isrc}")
+			if isrc == "" && shouldResolveISRC && t.SpotifyID != "" {
+				isrc = backend.ResolveTrackISRC(t.SpotifyID)
+			}
+			filenames := buildExistenceFilenameCandidates(t, defaultFilenameFormat, isrc)
+
+			// 1. FAST PATH: check target directory directly first (<1ms)
+			if path, exists := findExpectedFileInTargetDirectory(targetDir, filenames); exists {
+				res.Exists = true
+				res.FilePath = path
+				resultsChan <- result{index: idx, result: res}
+				return
+			}
+
+			// 2. If mode is filename-only, it doesn't exist in target directory
+			if existingFileCheckMode == "filename" {
+				resultsChan <- result{index: idx, result: res}
+				return
+			}
+
+			// 3. For hybrid / isrc modes, check in-memory library index
 			if existingFileCheckMode == "hybrid" && t.SpotifyID != "" {
 				path, exists, lookupErr := backend.FindExistingLibraryFile(scanRoot, backend.LibraryIndexLookupRequest{
 					Mode:      "hybrid",
@@ -2780,18 +2821,6 @@ func (a *App) CheckFilesExistence(outputDir string, rootDir string, tracks []Che
 				}
 			}
 
-			isrc := strings.TrimSpace(t.ISRC)
-			shouldResolveISRC := existingFileCheckMode == "isrc" || existingFileCheckMode == "hybrid" || strings.Contains(t.FilenameFormat, "{isrc}")
-			if isrc == "" && shouldResolveISRC && t.SpotifyID != "" {
-				isrc = backend.ResolveTrackISRC(t.SpotifyID)
-			}
-			filenames := buildExistenceFilenameCandidates(t, defaultFilenameFormat, isrc)
-
-			targetDir := outputDir
-			if t.RelativePath != "" {
-				targetDir = filepath.Join(outputDir, t.RelativePath)
-			}
-
 			path, exists, lookupErr := backend.FindExistingLibraryFile(scanRoot, backend.LibraryIndexLookupRequest{
 				Mode:      existingFileCheckMode,
 				SpotifyID: t.SpotifyID,
@@ -2803,16 +2832,6 @@ func (a *App) CheckFilesExistence(outputDir string, rootDir string, tracks []Che
 			} else if exists {
 				res.Exists = true
 				res.FilePath = path
-			}
-			filenameFallbackAllowed := existingFileCheckMode == "filename" || existingFileCheckMode == "hybrid" || (existingFileCheckMode == "isrc" && isrc == "")
-			if !res.Exists && filenameFallbackAllowed {
-				if path, exists := findExpectedFileInTargetDirectory(targetDir, filenames); exists {
-					res.Exists = true
-					res.FilePath = path
-					if indexErr := backend.RegisterLibraryFile(scanRoot, path, t.SpotifyID, isrc); indexErr != nil {
-						fmt.Printf("Warning: failed to repair library index: %v\n", indexErr)
-					}
-				}
 			}
 
 			resultsChan <- result{index: idx, result: res}

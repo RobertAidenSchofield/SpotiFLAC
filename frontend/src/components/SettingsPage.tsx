@@ -1788,6 +1788,57 @@ export function SettingsPage({
                   </div>
                 )}
               </div>
+
+              <div className='space-y-2 pt-2 border-t border-border/50'>
+                <div className='flex items-center gap-2'>
+                  <Label htmlFor='concurrent-downloads' className='font-medium'>
+                    Concurrent Downloads
+                  </Label>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <CircleHelp className='h-3.5 w-3.5 text-muted-foreground cursor-help' />
+                    </TooltipTrigger>
+                    <TooltipContent side='top'>
+                      <p className='text-xs'>
+                        Number of tracks to download simultaneously in albums
+                        and playlists.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <div className='flex items-center gap-3'>
+                  <Select
+                    value={String(tempSettings.concurrentDownloads || 1)}
+                    onValueChange={(value: string) =>
+                      setTempSettings((prev) => ({
+                        ...prev,
+                        concurrentDownloads: parseInt(value, 10) || 1,
+                      }))
+                    }
+                  >
+                    <SelectTrigger
+                      id='concurrent-downloads'
+                      className='h-9 w-36'
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='1'>1 (Sequential)</SelectItem>
+                      <SelectItem value='2'>2 Parallel</SelectItem>
+                      <SelectItem value='3'>3 Parallel</SelectItem>
+                      <SelectItem value='4'>4 Parallel</SelectItem>
+                      <SelectItem value='5'>5 Parallel</SelectItem>
+                      <SelectItem value='6'>6 Parallel</SelectItem>
+                      <SelectItem value='8'>8 Parallel</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span className='text-xs text-muted-foreground'>
+                    {(tempSettings.concurrentDownloads || 1) > 1
+                      ? `${tempSettings.concurrentDownloads} tracks will download at the same time`
+                      : 'Downloads 1 track at a time'}
+                  </span>
+                </div>
+              </div>
             </div>
 
             <div className='space-y-4'>

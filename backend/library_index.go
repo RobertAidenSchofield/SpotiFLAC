@@ -240,9 +240,15 @@ func openLibraryIndexStore(dbPath string) (*libraryIndexStore, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		return nil, fmt.Errorf("create library index directory: %w", err)
 	}
-	db, err := bolt.Open(dbPath, 0o600, &bolt.Options{Timeout: time.Second})
+	db, err := bolt.Open(dbPath, 0o600, &bolt.Options{Timeout: 500 * time.Millisecond})
 	if err != nil {
-		return nil, fmt.Errorf("open library index: %w", err)
+		fmt.Printf("Warning: failed to open library index DB (using in-memory store): %v\n", err)
+		return &libraryIndexStore{
+			db:      nil,
+			entries: make(map[string]libraryIndexEntry),
+			roots:   make(map[string]libraryIndexRootState),
+			lookups: make(map[string]*libraryRootLookup),
+		}, nil
 	}
 	store := &libraryIndexStore{
 		db:      db,
@@ -268,6 +274,9 @@ func openLibraryIndexStore(dbPath string) (*libraryIndexStore, error) {
 }
 
 func (s *libraryIndexStore) load() error {
+	if s.db == nil {
+		return nil
+	}
 	return s.db.View(func(tx *bolt.Tx) error {
 		entriesBucket := tx.Bucket([]byte(libraryIndexEntriesBucket))
 		rootsBucket := tx.Bucket([]byte(libraryIndexRootsBucket))
@@ -339,7 +348,9 @@ func CloseLibraryIndexDB() {
 	if globalLibraryIndex == nil {
 		return
 	}
-	_ = globalLibraryIndex.db.Close()
+	if globalLibraryIndex.db != nil {
+		_ = globalLibraryIndex.db.Close()
+	}
 	globalLibraryIndex = nil
 }
 
@@ -423,42 +434,44 @@ func (s *libraryIndexStore) replaceRoot(root string, rootKey string, entries []l
 		Level:     level,
 		ScannedAt: time.Now().Unix(),
 	}
-	if err := s.db.Update(func(tx *bolt.Tx) error {
-		entriesBucket := tx.Bucket([]byte(libraryIndexEntriesBucket))
-		rootsBucket := tx.Bucket([]byte(libraryIndexRootsBucket))
-		if entriesBucket == nil || rootsBucket == nil {
-			return errors.New("library index buckets are missing")
-		}
-		for conflictingRootKey := range conflictingRootKeys {
-			if err := rootsBucket.Delete([]byte(conflictingRootKey)); err != nil {
-				return err
+	if s.db != nil {
+		if err := s.db.Update(func(tx *bolt.Tx) error {
+			entriesBucket := tx.Bucket([]byte(libraryIndexEntriesBucket))
+			rootsBucket := tx.Bucket([]byte(libraryIndexRootsBucket))
+			if entriesBucket == nil || rootsBucket == nil {
+				return errors.New("library index buckets are missing")
 			}
-		}
-		cursor := entriesBucket.Cursor()
-		for key, value := cursor.First(); key != nil; key, value = cursor.Next() {
-			var existing libraryIndexEntry
-			if json.Unmarshal(value, &existing) == nil && existing.RootKey == rootKey {
-				if err := cursor.Delete(); err != nil {
+			for conflictingRootKey := range conflictingRootKeys {
+				if err := rootsBucket.Delete([]byte(conflictingRootKey)); err != nil {
 					return err
 				}
 			}
-		}
-		for _, entry := range entries {
-			encoded, err := json.Marshal(entry)
+			cursor := entriesBucket.Cursor()
+			for key, value := cursor.First(); key != nil; key, value = cursor.Next() {
+				var existing libraryIndexEntry
+				if json.Unmarshal(value, &existing) == nil && existing.RootKey == rootKey {
+					if err := cursor.Delete(); err != nil {
+						return err
+					}
+				}
+			}
+			for _, entry := range entries {
+				encoded, err := json.Marshal(entry)
+				if err != nil {
+					return err
+				}
+				if err := entriesBucket.Put([]byte(entry.PathKey), encoded); err != nil {
+					return err
+				}
+			}
+			encodedState, err := json.Marshal(state)
 			if err != nil {
 				return err
 			}
-			if err := entriesBucket.Put([]byte(entry.PathKey), encoded); err != nil {
-				return err
-			}
-		}
-		encodedState, err := json.Marshal(state)
-		if err != nil {
+			return rootsBucket.Put([]byte(rootKey), encodedState)
+		}); err != nil {
 			return err
 		}
-		return rootsBucket.Put([]byte(rootKey), encodedState)
-	}); err != nil {
-		return err
 	}
 
 	s.mu.Lock()
@@ -495,8 +508,11 @@ func (s *libraryIndexStore) ensureRoot(root string, includeMetadata bool) (strin
 		return rootKey, nil
 	}
 
-	s.ensureMu.Lock()
+	if !s.ensureMu.TryLock() {
+		return rootKey, nil
+	}
 	defer s.ensureMu.Unlock()
+
 	s.mu.RLock()
 	state, exists = s.roots[rootKey]
 	s.mu.RUnlock()
@@ -539,8 +555,10 @@ func EnsureLibraryIndex(root string, includeMetadata bool) error {
 	if err != nil {
 		return err
 	}
-	_, err = store.ensureRoot(root, includeMetadata)
-	return err
+	go func() {
+		_, _ = store.ensureRoot(root, includeMetadata)
+	}()
+	return nil
 }
 
 func copyLibraryPathSet(paths libraryPathSet) []string {
@@ -596,14 +614,14 @@ func (s *libraryIndexStore) removePathKey(pathKey string) {
 	if !exists {
 		return
 	}
-	if err := s.db.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket([]byte(libraryIndexEntriesBucket))
-		if bucket == nil {
-			return errors.New("library index entries bucket is missing")
-		}
-		return bucket.Delete([]byte(pathKey))
-	}); err != nil {
-		return
+	if s.db != nil {
+		_ = s.db.Update(func(tx *bolt.Tx) error {
+			bucket := tx.Bucket([]byte(libraryIndexEntriesBucket))
+			if bucket == nil {
+				return errors.New("library index entries bucket is missing")
+			}
+			return bucket.Delete([]byte(pathKey))
+		})
 	}
 	s.mu.Lock()
 	s.removeEntryLocked(entry)
@@ -647,20 +665,22 @@ func (s *libraryIndexStore) upsertEntry(entry libraryIndexEntry) error {
 		conflictingRootKey = previous.RootKey
 	}
 	s.mu.RUnlock()
-	if err := s.db.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket([]byte(libraryIndexEntriesBucket))
-		rootsBucket := tx.Bucket([]byte(libraryIndexRootsBucket))
-		if bucket == nil || rootsBucket == nil {
-			return errors.New("library index buckets are missing")
-		}
-		if conflictingRootKey != "" {
-			if err := rootsBucket.Delete([]byte(conflictingRootKey)); err != nil {
-				return err
+	if s.db != nil {
+		if err := s.db.Update(func(tx *bolt.Tx) error {
+			bucket := tx.Bucket([]byte(libraryIndexEntriesBucket))
+			rootsBucket := tx.Bucket([]byte(libraryIndexRootsBucket))
+			if bucket == nil || rootsBucket == nil {
+				return errors.New("library index buckets are missing")
 			}
+			if conflictingRootKey != "" {
+				if err := rootsBucket.Delete([]byte(conflictingRootKey)); err != nil {
+					return err
+				}
+			}
+			return bucket.Put([]byte(entry.PathKey), encoded)
+		}); err != nil {
+			return err
 		}
-		return bucket.Put([]byte(entry.PathKey), encoded)
-	}); err != nil {
-		return err
 	}
 	s.mu.Lock()
 	if conflictingRootKey != "" {
